@@ -35,7 +35,7 @@ class manipulator:
         end_coord = np.array([0, 0, 0, 1])
 
         for i in range(self.n):
-            for k in reversed(range(i+1)):
+            for k in reversed(range(i)):
                 end_coord = np.dot(transform[k], end_coord)
             # end_coord = np.dot(transform[i],end_coord)
             joint_x.append(end_coord[0])
@@ -99,8 +99,6 @@ class manipulator_symbolic:
         self.n = n 
         self.q1 = MX.sym('q1')
         self.q2 = MX.sym('q2')
-        # self.theta = MX.sym('theta', n)
-        # self.alpha = MX.sym('alpha', n)
         self.cable_lengths = MX.sym('cable_lengths', (n,4))
         self.q_dot1 = MX.sym('q_dot1')
         self.q_dot2 = MX.sym('q_dot2')
@@ -178,9 +176,9 @@ class manipulator_symbolic:
             T = MX.zeros(4, 4)
             k = 0 
 
-            T_ = [[MX.cos(self.theta[i]), MX.sin(self.alpha[i])*MX.sin(self.theta[i]), MX.cos(self.alpha[i])*MX.sin(self.theta[i]), (self.l/2)*MX.sin(self.theta[i])*MX.cos(self.alpha[i])/2],
-            [0, MX.cos(self.alpha[i]), -MX.sin(self.alpha[i]), -(self.l/2)*MX.sin(self.alpha[i])/2],
-            [-MX.sin(self.theta[i]), MX.sin(self.alpha[i])*MX.cos(self.theta[i]), MX.cos(self.theta[i])*MX.cos(self.alpha[i]), self.l/2 + (self.l/2)*MX.cos(self.theta[i])*MX.cos(self.alpha[i])/2],
+            T_ = [[MX.cos(self.theta[i]), MX.sin(self.alpha[i])*MX.sin(self.theta[i]), MX.cos(self.alpha[i])*MX.sin(self.theta[i]), ((self.l/2)*MX.sin(self.theta[i])*MX.cos(self.alpha[i]))/2],
+            [0, MX.cos(self.alpha[i]), -MX.sin(self.alpha[i]), -((self.l/2)*MX.sin(self.alpha[i]))/2],
+            [-MX.sin(self.theta[i]), MX.sin(self.alpha[i])*MX.cos(self.theta[i]), MX.cos(self.theta[i])*MX.cos(self.alpha[i]), self.thick + self.l/2 + ((self.l/2)*MX.cos(self.theta[i])*MX.cos(self.alpha[i]))/2],
             [0,0,0,1]]
 
 
@@ -215,7 +213,7 @@ class manipulator_symbolic:
 
         return self.P
 
-    def create_dae(self):
+    def create_dae(self, flag):
 
         x = vertcat(self.x, self.y, self.z, self.q1, self.q2)
         # x = vertcat(self.q1, self.q2)
@@ -230,7 +228,7 @@ class manipulator_symbolic:
 
         return I
 
-# m = manipulator(0.016, 0.004, 4, 0.028)
+# m = manipulator(0.016, 0.0035, 5, 0.028)
 # end, xdata, ydata, zdata = m.forward_kinematics(np.array([0.0, -0.0]))
 # print(end)
 # fig = plt.figure()
@@ -245,20 +243,83 @@ class manipulator_symbolic:
 # ax.plot3D(xdata, ydata, zdata)
 # plt.show()
 
+##################################################
+######### Simple Integration Simulation ##########
+##################################################
 
+
+# pos = P(0.01, 0.01, 0.028, 0.016, 0.004)
+# xf = integrator(x0 = [pos[0].__float__(), pos[1].__float__(), pos[2].__float__(), 0.01, 0.01], p = [0.0005, 0., 0.028, 0.016, 0.003])['xf']
+# N = 100
+
+# t = []
+# x1 = []
+# x2 = []
+# x3 = []
+
+# st = time.time()
+
+# for i in range(N):
+
+#     x1.append(xf[0].__float__())
+#     x2.append(xf[1].__float__())
+#     x3.append(xf[2].__float__())
+#     t.append([i*0.2])
+
+#     x = integrator(x0 = [xf[0].__float__(), xf[1].__float__(), xf[2].__float__(), xf[3].__float__(), xf[4].__float__()], p = [0.003, 0.002, 0.028, 0.016, 0.003])
+#     xf = x['xf']
+
+# print(time.time() - st)
+
+# plt.plot(t,x1)
+# plt.plot(t,x2)
+# plt.plot(t,x3)
+
+# plt.show()
+
+##################################################
+######### END ####################################
+##################################################
 
 mpc = manipulator_symbolic(5)
 mpc.create_terms()
 P = mpc.velocity_kinematics()
-integrator = mpc.create_dae()
+integrator = mpc.create_dae(0)
 
-pos = P(0.01, 0.01, 0.028, 0.016, 0.004)
+m = manipulator(0.016, 0.0035, 5, 0.028)
+print(m.forward_kinematics(np.array([0, 0])))
 
-x = integrator(x0 = [pos[0].__float__(), pos[1].__float__(), pos[2].__float__(), 0.01, 0.01], p = [0.0005, 0., 0.028, 0.016, 0.003])['xf']
+opti = Opti()
 
-print(x)
+N = 20
+r_disc = 0.016
+l = 0.028
+thickness = 0.0035
+
+pos = P(0.0, 0.0, 0.028, 0.016, 0.0035)
+
+print(pos)
+
+x = opti.variable(5, N+1)
+u = opti.variable(2, N)
+p = opti.variable(3, 1)
+
+opti.minimize(sumsqr(x) + sumsqr(u))
+
+for i in range(N):
+
+    opti.subject_to(x[:,i+1] == integrator(x0 = x[:,1], p = vertcat(u[:,i], p))['xf'])
+
+opti.subject_to(u[0] >= -0.001)
+opti.subject_to(0.001 >= u[0])
+opti.subject_to(u[1] >= -0.001)
+opti.subject_to(0.001 >= u[1])
+opti.subject_to(p[0] == r_disc)
+opti.subject_to(p[1] == l)
+opti.subject_to(p[0] == thickness)
+opti.subject_to(x[:,3] == 0.03)
+opti.subject_to(x[:,4] == 0.03)
 
 
-
-
+# opti.solver('ipopt', )
 
