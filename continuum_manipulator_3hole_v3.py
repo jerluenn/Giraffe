@@ -366,11 +366,10 @@ class continuum_symbolic():
 if __name__ == "__main__":
 
     a = continuum(2, np.array([[0.24], [0.24]]), 0.014, np.array([[0.0, 0.0, 0.0],[0.01, 0.0, 0.0]]))
-    # a.theta = np.array([0.884, 1.4865])
-    # a.phi = np.array([-1.26666, -1.2284])
     a.compute_fk(verbose = True)
-    print(a.phi)
-    print(a.theta)
+    a.s = np.array([0.2, 0.2])
+    a.compute_fk(verbose=True)
+
 
 
     # a = continuum_symbolic(2, [0.24, 0.24], 0.014)
